@@ -1,0 +1,12 @@
+build
+.DS_Store
+processed/*
+sdkconfig.old
+sdkconfig
+__pycache__
+.venv
+pictures/masha.jpeg
+pictures/masha2.png
+pictures/masha2.xcf
+examples/masha2_image.h
+examples/masha_image.h

@@ -1,0 +1,71 @@
+menu "ESP32 Oscilloscope Demo Configuration"
+
+    choice DEMO_MODE
+        prompt "Select Demo to Run"
+        default DEMO_GRAYSCALE
+        help
+            Select which oscilloscope demo to run on startup.
+
+        config DEMO_SHAPES
+            bool "Shapes Demo"
+            help
+                Run the shapes demo (square, triangle, circle, X).
+
+        config DEMO_TEXT
+            bool "Text Demo"
+            help
+                Run the text demo (Hello World).
+                
+        config DEMO_TEAPOT
+            bool "3D Teapot Demo"
+            help
+                Run the 3D wireframe teapot demo with rotation animation.
+                
+        config DEMO_CLOCK
+            bool "Clock Demo with WiFi/NTP"
+            help
+                Run the clock demo that connects to WiFi and fetches time from an NTP server.
+                
+        config DEMO_DAISY
+            bool "Daisy Flower Demo"
+            help
+                Run the daisy flower demo drawing a flower with petals and center.
+                
+        config DEMO_GRAYSCALE
+            bool "Grayscale Image Demo"
+            help
+                Run the grayscale demo showing different intensity levels by beam timing.
+                
+        config DEMO_TIMEBASE
+            bool "Timebase Image Demo"
+            help
+                Run the timebase image demo using oscilloscope's timebase for X scanning.
+                
+        config DEMO_ANIMATION
+            bool "Animation Demo"
+            help
+                Run the animation demo (10 FPS, configurable in animation.h).
+    endchoice
+    
+    config WIFI_SSID
+        depends on DEMO_CLOCK
+        string "WiFi SSID"
+        default "BroadbentWifi2.4G"
+        help
+            SSID (network name) for the example to connect to.
+
+    config WIFI_PASSWORD
+        depends on DEMO_CLOCK
+        string "WiFi Password"
+        default "broadbent57"
+        help
+            WiFi password (WPA or WPA2) for the example to use.
+            
+    config NTP_TIMEZONE
+        depends on DEMO_CLOCK
+        string "Timezone"
+        default "NZST-12NZDT,M9.5.0,M4.1.0/3"
+        help
+            Timezone string for the clock display. Default is New Zealand Time.
+
+endmenu
