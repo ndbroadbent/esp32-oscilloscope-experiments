@@ -32,10 +32,10 @@
 #define ANIMATION_SPEED 8  // Pixels per frame (much faster movement)
 #define PARTICLE_COUNT 50     // Number of particles for corner hit effects (increased)
 #define PARTICLE_LIFETIME 250 // How long particles live (in frames) - balanced for visibility
-#define CORNER_THRESHOLD 15   // Distance from corner to trigger effect (pixels)
+#define CORNER_THRESHOLD 5   // Distance from corner to trigger effect (pixels)
 #define PARTICLE_REDRAW_COUNT 0 // Number of times to redraw particles per frame for better visibility
 #define DEBUG_PARTICLE_EFFECT 0 // Set to 1 to show particle effects on all bounces
-#define DEBUG_FIRST_CORNER 1    // Set to 1 to aim logo at top-left corner for first hit, 0 for random edge hit
+#define DEBUG_FIRST_CORNER 0    // Set to 1 to aim logo at top-left corner for first hit, 0 for random edge hit
 #define DEBUG_LOGS 0 // Set to 1 to enable diagnostic logs
 
 // Task handle
@@ -134,15 +134,34 @@ void create_corner_effect(dac_oneshot_handle_t dac_x, dac_oneshot_handle_t dac_y
         particles[i].x = corner_x;
         particles[i].y = corner_y;
         
-        // Random velocity in all directions but with more horizontal energy
-        float angle = ((float)rand() / RAND_MAX) * 2 * PI;
+        // Create more variety in particle directions
+        // Allow a wider range of angles to create more spread
+        float angle;
+        
+        // Distribute particles in different quadrants for better spread
+        if (i < PARTICLE_COUNT/4) {
+            // Upper right quadrant (0 to 90 degrees)
+            angle = ((float)rand() / RAND_MAX) * (PI/2);
+        } else if (i < PARTICLE_COUNT/2) {
+            // Upper left quadrant (90 to 180 degrees)
+            angle = ((float)rand() / RAND_MAX) * (PI/2) + (PI/2);
+        } else if (i < 3*PARTICLE_COUNT/4) {
+            // Lower left quadrant (180 to 270 degrees)
+            angle = ((float)rand() / RAND_MAX) * (PI/2) + PI;
+        } else {
+            // Lower right quadrant (270 to 360 degrees)
+            angle = ((float)rand() / RAND_MAX) * (PI/2) + (3*PI/2);
+        }
         
         // Higher base speed
-        float speed = 1.4f + ((float)rand() / RAND_MAX) * 7.0f;
+        float speed = 2.0f + ((float)rand() / RAND_MAX) * 8.0f;
         
         // Calculate base velocities
         float vx = cos(angle) * speed;
         float vy = sin(angle) * speed;
+        
+        // Boost horizontal velocity for more spread
+        vx *= 1.3f;
         
         // Assign to particle
         particles[i].vx = vx;
@@ -168,11 +187,8 @@ void update_and_draw_particles(dac_oneshot_handle_t dac_x, dac_oneshot_handle_t 
             // Decay lifetime
             particles[i].lifetime--;
             
-            // Deactivate particles when their lifetime expires, fall off screen, or barely moving
-            if (particles[i].lifetime <= 0 || 
-                particles[i].y > 300 || 
-                // Add a slight variation based on particle index
-                (particles[i].y > 250 && fabs(particles[i].vy) < (0.15f + (i % 10) * 0.01f))) {
+            // Deactivate particles when their lifetime expires or fall off screen
+            if (particles[i].lifetime <= 0 || particles[i].y > 300) {
                 particles[i].active = false;
             }
             
@@ -186,22 +202,32 @@ void update_and_draw_particles(dac_oneshot_handle_t dac_x, dac_oneshot_handle_t 
                 particles[i].vx = -fabs(particles[i].vx) * 0.8f; // Force negative x velocity
             }
             
-            // Bounce off top only
-            if (particles[i].y <= 0) {
-                particles[i].y = 0.1f; // Move slightly inside the boundary
+            // Allow particles to go slightly offscreen at the top for more natural effect
+            if (particles[i].y <= -20) {
+                // Only bounce if they go too far offscreen
+                particles[i].y = -19.9f;
                 particles[i].vy = fabs(particles[i].vy) * 0.6f; // Force positive y velocity (downward)
             } 
-            // For bottom edge - bounce with slight randomization
+            // For bottom edge - allow only one bounce
             else if (particles[i].y >= 255) {
-                // Move slightly inside boundary
-                particles[i].y = 254.0f;
+                // Use a static array to track which particles have already bounced
+                static bool has_bounced[PARTICLE_COUNT] = {false};
                 
-                // Bounce with 40% of incoming velocity, plus a small random factor
-                particles[i].vy = -particles[i].vy * (0.4f + ((float)(rand() % 10) / 100.0f));
-                
-                // Minimum bounce velocity
-                if (particles[i].vy > -0.2f) {
-                    particles[i].vy = -0.2f - ((float)(rand() % 10) / 100.0f);
+                if (!has_bounced[i]) {
+                    // First bounce - give it a good bounce
+                    has_bounced[i] = true;
+                    particles[i].y = 254.0f;
+                    
+                    // Nice 40% bounce with slight randomization
+                    particles[i].vy = -particles[i].vy * (0.4f + ((float)(rand() % 10) / 100.0f));
+                    
+                    // Ensure minimum bounce velocity
+                    if (particles[i].vy > -0.5f) {
+                        particles[i].vy = -0.5f;
+                    }
+                } else {
+                    // Second bounce - deactivate
+                    particles[i].active = false;
                 }
             }
             
@@ -611,8 +637,17 @@ void bouncing_dvd_task(void *pvParameters) {
             }
         }
         
-        // Show particles ONLY on bounce - no time check
-        if (show_particles) {
+        // Check if there are any active particles already
+        bool particles_currently_active = false;
+        for (int i = 0; i < PARTICLE_COUNT; i++) {
+            if (particles[i].active) {
+                particles_currently_active = true;
+                break;
+            }
+        }
+        
+        // Show particles ONLY on bounce and if no particles are currently active
+        if (show_particles && !particles_currently_active) {
             if (DEBUG_LOGS) {
                 printf("CREATING PARTICLES: time=%lu, last_hit=%lu\n", 
                        current_time, logo.last_corner_hit);
