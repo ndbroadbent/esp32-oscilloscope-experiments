@@ -50,6 +50,11 @@ menu "ESP32 Oscilloscope Demo Configuration"
             bool "Fractal Maze Demo"
             help
                 Run the fractal maze demo creating intricate patterns with recursively generated mazes.
+                
+        config DEMO_DVD_BOUNCE
+            bool "DVD Logo Bounce Demo"
+            help
+                Run the DVD logo bounce demo with corner hit effects.
     endchoice
     
     
