@@ -30,8 +30,8 @@
 
 // Animation settings
 #define ANIMATION_SPEED 8  // Pixels per frame (much faster movement)
-#define PARTICLE_COUNT 32     // Number of particles for corner hit effects (increased)
-#define PARTICLE_LIFETIME 300 // How long particles live (in frames) - increased for better visibility
+#define PARTICLE_COUNT 80     // Number of particles for corner hit effects (increased)
+#define PARTICLE_LIFETIME 200 // How long particles live (in frames) - balanced for visibility
 #define CORNER_THRESHOLD 15   // Distance from corner to trigger effect (pixels)
 #define PARTICLE_REDRAW_COUNT 0 // Number of times to redraw particles per frame for better visibility
 #define DEBUG_PARTICLE_EFFECT 0 // Set to 1 to show particle effects on all bounces
@@ -141,7 +141,8 @@ void create_corner_effect(dac_oneshot_handle_t dac_x, dac_oneshot_handle_t dac_y
         
         particles[i].vx = cos(angle) * speed;
         particles[i].vy = sin(angle) * speed;
-        particles[i].lifetime = PARTICLE_LIFETIME;
+        // Add a small amount of randomness to lifetime
+        particles[i].lifetime = PARTICLE_LIFETIME - 20 + (rand() % 40);
         particles[i].active = true;
     }
 }
@@ -161,8 +162,11 @@ void update_and_draw_particles(dac_oneshot_handle_t dac_x, dac_oneshot_handle_t 
             // Decay lifetime
             particles[i].lifetime--;
             
-            // Deactivate particles when their lifetime expires or they fall too far below the screen
-            if (particles[i].lifetime <= 0 || particles[i].y > 300) {
+            // Deactivate particles when their lifetime expires, fall off screen, or barely moving
+            if (particles[i].lifetime <= 0 || 
+                particles[i].y > 300 || 
+                // Add a slight variation based on particle index
+                (particles[i].y > 250 && fabs(particles[i].vy) < (0.15f + (i % 10) * 0.01f))) {
                 particles[i].active = false;
             }
             
@@ -181,29 +185,23 @@ void update_and_draw_particles(dac_oneshot_handle_t dac_x, dac_oneshot_handle_t 
                 particles[i].y = 0.1f; // Move slightly inside the boundary
                 particles[i].vy = fabs(particles[i].vy) * 0.6f; // Force positive y velocity (downward)
             } 
-            // For bottom edge, make sure particles never rest on it
+            // For bottom edge - bounce with slight randomization
             else if (particles[i].y >= 255) {
-                // Create a bouncier first bounce
-                if (particles[i].vy > 1.5f) {  // Coming down with good speed
-                    particles[i].y = 254.9f;   // Move inside boundary
-                    particles[i].vy = -particles[i].vy * 0.4f;  // Bouncier first bounce (40%)
-                    particles[i].vx *= 0.8f;   // Add some friction
-                } 
-                else if (particles[i].vy > 0.5f) {  // Coming down with less speed (likely 2nd bounce)
-                    particles[i].y = 254.9f;
-                    particles[i].vy = -particles[i].vy * 0.2f;  // Less bounce for 2nd+ bounce (20%)
-                    particles[i].vx *= 0.7f;   // More friction
-                }
-                else {
-                    // No more bounces - ensure it falls off screen
-                    particles[i].y = 300.0f;   // Push it far below the edge
-                    particles[i].vy = 5.0f;    // Force fast downward velocity
-                    particles[i].lifetime = 0; // Mark for immediate removal
+                // Move slightly inside boundary
+                particles[i].y = 254.0f;
+                
+                // Bounce with 40% of incoming velocity, plus a small random factor
+                particles[i].vy = -particles[i].vy * (0.4f + ((float)(rand() % 10) / 100.0f));
+                
+                // Minimum bounce velocity
+                if (particles[i].vy > -0.2f) {
+                    particles[i].vy = -0.2f - ((float)(rand() % 10) / 100.0f);
                 }
             }
             
             // Gradually slow down horizontal movement for more natural effect
-            particles[i].vx *= 0.99f;
+            // Add just a tiny bit of variation
+            particles[i].vx *= (0.99f - ((float)(i % 5) / 1000.0f));
         }
     }
     
