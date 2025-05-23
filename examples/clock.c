@@ -22,6 +22,12 @@
 #define CHAR_SPACING 0         // No additional space between characters
 #define PI 3.14159265358979323846
 
+// Anti-burn-in settings
+#define ANTI_BURNIN_ENABLED 1           // Set to 0 to disable position shifting
+#define ANTI_BURNIN_DEBUG_MODE 1        // Set to 1 to shift every second (for testing), 0 for normal minute shifts
+#define ANTI_BURNIN_X_RANGE 12          // Max pixels to move horizontally (positive only to avoid cutoff)
+#define ANTI_BURNIN_Y_RANGE 11          // Max pixels to move vertically (centered around 0)
+
 // WiFi connection settings from menuconfig
 #ifdef CONFIG_WIFI_SSID
 #define WIFI_SSID      CONFIG_WIFI_SSID
@@ -565,6 +571,10 @@ void draw_clock(dac_oneshot_handle_t dac_x, dac_oneshot_handle_t dac_y, int iter
     static char last_minute_str[32] = "";
     static char last_seconds_str[32] = "";
     static char last_date_str[32] = "";
+    static int offset_x = 0;
+    static int offset_y = 0;
+    static int last_minute = -1;
+    static int last_second = -1;
     
     // Get current time and date strings
     get_hour_string(hour_str, sizeof(hour_str));
@@ -584,17 +594,66 @@ void draw_clock(dac_oneshot_handle_t dac_x, dac_oneshot_handle_t dac_y, int iter
         strcpy(last_minute_str, minute_str);
         strcpy(last_seconds_str, seconds_str);
         strcpy(last_date_str, date_str);
+        
+        if (ANTI_BURNIN_ENABLED) {
+            // Get current time for position shifting
+            time_t now;
+            struct tm timeinfo;
+            time(&now);
+            localtime_r(&now, &timeinfo);
+            
+            bool should_shift = false;
+            
+            if (ANTI_BURNIN_DEBUG_MODE) {
+                // In debug mode, shift every second for quick testing
+                if (timeinfo.tm_sec != last_second) {
+                    last_second = timeinfo.tm_sec;
+                    should_shift = true;
+                }
+            } else {
+                // Normal mode - shift every minute
+                if (timeinfo.tm_min != last_minute) {
+                    last_minute = timeinfo.tm_min;
+                    should_shift = true;
+                }
+            }
+            
+            if (should_shift) {
+                // Change the position slightly to prevent burn-in
+                // Use a simple deterministic pattern to create different positions
+                // We want positions to change each time, not repeat 0,0
+                
+                // Use current second or minute (depending on mode) as part of the seed
+                int time_value = ANTI_BURNIN_DEBUG_MODE ? last_second : last_minute;
+                
+                // Generate x offset (positive only to prevent text going off left edge)
+                // For X: values from 0 to ANTI_BURNIN_X_RANGE
+                offset_x = (time_value * 3 + 7) % ANTI_BURNIN_X_RANGE;
+                
+                // Generate y offset (centered around 0)
+                // For Y: values from -ANTI_BURNIN_Y_RANGE/2 to +ANTI_BURNIN_Y_RANGE/2
+                offset_y = ((time_value * 5 + 3) % ANTI_BURNIN_Y_RANGE) - (ANTI_BURNIN_Y_RANGE / 2);
+                
+                ESP_LOGI(TAG, "Adjusting position to prevent burn-in: offset_x=%d, offset_y=%d", 
+                        offset_x, offset_y);
+            }
+        }
     }
+    
+    // Calculate final positions with or without offsets
+    int pos_offset_x = ANTI_BURNIN_ENABLED ? offset_x : 0;
+    int pos_offset_y = ANTI_BURNIN_ENABLED ? offset_y : 0;
     
     // Draw multiple times for brighter display
     for (int i = 0; i < iterations; i++) {
-        // Draw time with adjusted font sizes - HH:MM:SS
-        draw_text(dac_x, dac_y, hour_str, 0, 160, 22, true);      // Hours with settling delay
-        draw_text(dac_x, dac_y, minute_str, 95, 160, 22, false);  // Minutes - no delay
-        draw_text(dac_x, dac_y, seconds_str, 185, 160, 22, false); // Seconds - no delay
+        // Draw time with adjusted font sizes - HH:MM:SS with offsets to prevent burn-in
+        // Using slightly smaller fonts (20 instead of 22) to allow more room for movement
+        draw_text(dac_x, dac_y, hour_str, 10 + pos_offset_x, 160 + pos_offset_y, 20, true);     // Hours with settling delay, moved right
+        draw_text(dac_x, dac_y, minute_str, 95 + pos_offset_x, 160 + pos_offset_y, 20, false);  // Minutes - no delay
+        draw_text(dac_x, dac_y, seconds_str, 180 + pos_offset_x, 160 + pos_offset_y, 20, false); // Seconds - no delay
         
         // Draw date in smaller font - with settling delay for month
-        draw_text(dac_x, dac_y, date_str, 28, 55, 20, true);
+        draw_text(dac_x, dac_y, date_str, 35 + pos_offset_x, 60 + pos_offset_y, 18, true);      // Date moved right and down, smaller font
         
         // No task yields inside the drawing loop - constant beam motion
     }
