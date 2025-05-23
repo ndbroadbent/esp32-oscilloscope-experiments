@@ -30,8 +30,8 @@
 
 // Animation settings
 #define ANIMATION_SPEED 8  // Pixels per frame (much faster movement)
-#define PARTICLE_COUNT 80     // Number of particles for corner hit effects (increased)
-#define PARTICLE_LIFETIME 200 // How long particles live (in frames) - balanced for visibility
+#define PARTICLE_COUNT 50     // Number of particles for corner hit effects (increased)
+#define PARTICLE_LIFETIME 250 // How long particles live (in frames) - balanced for visibility
 #define CORNER_THRESHOLD 15   // Distance from corner to trigger effect (pixels)
 #define PARTICLE_REDRAW_COUNT 0 // Number of times to redraw particles per frame for better visibility
 #define DEBUG_PARTICLE_EFFECT 0 // Set to 1 to show particle effects on all bounces
@@ -134,13 +134,19 @@ void create_corner_effect(dac_oneshot_handle_t dac_x, dac_oneshot_handle_t dac_y
         particles[i].x = corner_x;
         particles[i].y = corner_y;
         
-        // Random velocity in all directions
+        // Random velocity in all directions but with more horizontal energy
         float angle = ((float)rand() / RAND_MAX) * 2 * PI;
-        // Use original particle speed - these worked well
-        float speed = 2.0f + ((float)rand() / RAND_MAX) * 6.0f;
         
-        particles[i].vx = cos(angle) * speed;
-        particles[i].vy = sin(angle) * speed;
+        // Higher base speed
+        float speed = 1.4f + ((float)rand() / RAND_MAX) * 7.0f;
+        
+        // Calculate base velocities
+        float vx = cos(angle) * speed;
+        float vy = sin(angle) * speed;
+        
+        // Assign to particle
+        particles[i].vx = vx;
+        particles[i].vy = vy;
         // Add a small amount of randomness to lifetime
         particles[i].lifetime = PARTICLE_LIFETIME - 20 + (rand() % 40);
         particles[i].active = true;
