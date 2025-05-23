@@ -30,10 +30,10 @@
 
 // Animation settings
 #define ANIMATION_SPEED 8  // Pixels per frame (much faster movement)
-#define PARTICLE_COUNT 40     // Number of particles for corner hit effects (increased)
+#define PARTICLE_COUNT 35     // Number of particles for corner hit effects (increased)
 #define PARTICLE_LIFETIME 200 // How long particles live (in frames) - doubled for more visibility
 #define CORNER_THRESHOLD 15   // Distance from corner to trigger effect (pixels)
-#define PARTICLE_REDRAW_COUNT 10 // Number of times to redraw particles per frame
+#define PARTICLE_REDRAW_COUNT 1 // Number of times to redraw particles per frame
 #define DEBUG_PARTICLE_EFFECT 0 // Set to 1 to show particle effects on all bounces
 #define DEBUG_LOGS 0 // Set to 1 to enable diagnostic logs
 
@@ -167,12 +167,19 @@ void update_and_draw_particles(dac_oneshot_handle_t dac_x, dac_oneshot_handle_t 
             }
             
             // Bounce off side edges, but allow falling off bottom
-            if (particles[i].x <= 0 || particles[i].x >= 255) {
-                particles[i].vx = -particles[i].vx * 0.8f;
+            // Also reposition particles to prevent them from wrapping around
+            if (particles[i].x <= 0) {
+                particles[i].x = 0.1f; // Move slightly inside the boundary
+                particles[i].vx = fabs(particles[i].vx) * 0.8f; // Force positive x velocity
+            } else if (particles[i].x >= 255) {
+                particles[i].x = 254.9f; // Move slightly inside the boundary
+                particles[i].vx = -fabs(particles[i].vx) * 0.8f; // Force negative x velocity
             }
+            
             // Only bounce off top, let them fall through bottom
             if (particles[i].y <= 0) {
-                particles[i].vy = -particles[i].vy * 0.6f; // Less bounce
+                particles[i].y = 0.1f; // Move slightly inside the boundary
+                particles[i].vy = fabs(particles[i].vy) * 0.6f; // Force positive y velocity (downward)
             }
             
             // Gradually slow down horizontal movement for more natural effect
@@ -384,9 +391,8 @@ bool update_logo_position(LogoState *logo) {
     bool hit_corner = false;
     bool bounced = false;
     
-    // Track old position and velocity for debugging
-    float old_x = logo->x;
-    float old_y = logo->y;
+    // Track old velocity for debugging
+    // (old position not needed)
     float old_vx = logo->vx;
     float old_vy = logo->vy;
     
@@ -493,9 +499,7 @@ void bouncing_dvd_task(void *pvParameters) {
     
     // Initialize logo state in the center with trajectory to hit top-left corner
     
-    // Calculate half dimensions - these are needed for positioning
-    float half_width = (LOGO_WIDTH * LOGO_SCALE) / 2;
-    float half_height = (LOGO_HEIGHT * LOGO_SCALE) / 2;
+    // Calculate initial position for top-left corner trajectory
     
     // The problem is that the logo is a rectangle, not a square
     // To hit the corner exactly, we need to adjust the direction based on the 
@@ -648,19 +652,19 @@ void bouncing_dvd_task(void *pvParameters) {
                         }
                         
                         // Always draw center point
-                        fast_dac_update(dac_x, dac_y, x_val, y_val);
+                        fast_dac_update(dac_handle_x, dac_handle_y, x_val, y_val);
                         
                         // Draw expanded pattern based on size
                         if (size >= 2) {
                             // Horizontal and vertical points
-                            fast_dac_update(dac_x, dac_y, x_val + 1, y_val);
-                            fast_dac_update(dac_x, dac_y, x_val - 1, y_val);
-                            fast_dac_update(dac_x, dac_y, x_val, y_val + 1);
-                            fast_dac_update(dac_x, dac_y, x_val, y_val - 1);
+                            fast_dac_update(dac_handle_x, dac_handle_y, x_val + 1, y_val);
+                            fast_dac_update(dac_handle_x, dac_handle_y, x_val - 1, y_val);
+                            fast_dac_update(dac_handle_x, dac_handle_y, x_val, y_val + 1);
+                            fast_dac_update(dac_handle_x, dac_handle_y, x_val, y_val - 1);
                         }
                         
                         // Extra brightness for center point
-                        fast_dac_update(dac_x, dac_y, x_val, y_val);
+                        fast_dac_update(dac_handle_x, dac_handle_y, x_val, y_val);
                     }
                 }
             }
