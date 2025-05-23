@@ -24,7 +24,7 @@
 
 // Anti-burn-in settings
 #define ANTI_BURNIN_ENABLED 1           // Set to 0 to disable position shifting
-#define ANTI_BURNIN_DEBUG_MODE 1        // Set to 1 to shift every second (for testing), 0 for normal minute shifts
+#define ANTI_BURNIN_DEBUG_MODE 0        // Set to 1 to shift every second (for testing), 0 for normal minute shifts
 #define ANTI_BURNIN_X_RANGE 12          // Max pixels to move horizontally (positive only to avoid cutoff)
 #define ANTI_BURNIN_Y_RANGE 11          // Max pixels to move vertically (centered around 0)
 
