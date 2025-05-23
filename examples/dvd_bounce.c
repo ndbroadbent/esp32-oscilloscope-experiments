@@ -10,6 +10,7 @@
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
+#include "dvd_logo_points.h"  // Include the generated header file
 
 #define DAC_CHAN_X DAC_CHAN_0 // GPIO25
 #define DAC_CHAN_Y DAC_CHAN_1 // GPIO26

@@ -243,48 +243,55 @@ def generate_debug_svg(path_segments, filename, width=500, height=500):
 
 def generate_header(segments, name="svg", scale=255.0):
     """
-    Generate a C header file with path segment data.
+    Generate a C header file with separate arrays for each path segment.
     """
-    # Flatten all segments into a single array with path start indices
-    all_points = []
-    path_starts = [0]
-    
-    for segment in segments:
-        all_points.extend(segment)
-        path_starts.append(len(all_points))
-    
-    # Remove the last entry which is just the total length
-    path_starts.pop()
-    
     # Count points and segments
-    num_points = len(all_points)
+    segment_point_counts = [len(segment) for segment in segments]
+    total_points = sum(segment_point_counts)
     num_segments = len(segments)
     
     # Generate header guard
     header_guard = f"{name.upper()}_POINTS_H"
     
-    # Generate point array
-    point_array = f"const float {name}_points[] = {{\n"
-    for i, (x, y) in enumerate(all_points):
-        if i % 4 == 0:
-            point_array += "    "
-        point_array += f"{x:.6f}f, {y:.6f}f, "
-        if i % 4 == 3 or i == len(all_points) - 1:
-            point_array += "\n"
-    point_array += "};\n"
+    # Generate separate arrays for each path segment
+    path_arrays = []
+    for i, segment in enumerate(segments):
+        segment_name = f"{name}_path_{i+1}"
+        segment_array = f"// Path segment {i+1} with {len(segment)} points\n"
+        segment_array += f"const float {segment_name}[] = {{\n"
+        
+        for j, (x, y) in enumerate(segment):
+            if j % 4 == 0:
+                segment_array += "    "
+            segment_array += f"{x:.6f}f, {y:.6f}f, "
+            if j % 4 == 3 or j == len(segment) - 1:
+                segment_array += "\n"
+        
+        segment_array += "};\n"
+        segment_array += f"#define {name.upper()}_PATH_{i+1}_POINT_COUNT {len(segment)}\n\n"
+        path_arrays.append(segment_array)
     
-    # Generate path starts array
-    path_starts_array = f"const uint16_t {name}_path_starts[] = {{\n    "
-    for i, start in enumerate(path_starts):
-        path_starts_array += f"{start}, "
-        if (i + 1) % 10 == 0:
-            path_starts_array += "\n    "
-    path_starts_array += "\n};\n"
+    # Combine all path arrays
+    all_path_arrays = "\n".join(path_arrays)
     
     # Generate counts and scale factor
-    point_count = f"#define {name.upper()}_POINT_COUNT {num_points}\n"
+    total_point_count = f"#define {name.upper()}_TOTAL_POINT_COUNT {total_points}\n"
     path_count = f"#define {name.upper()}_PATH_COUNT {num_segments}\n"
-    scale_factor = f"#define {name.upper()}_SCALE {scale}f\n"
+    scale_factor = f"#define {name.upper()}_SCALE {scale}f\n\n"
+    
+    # Create a path pointers array
+    path_pointers = f"// Array of pointers to each path segment\n"
+    path_pointers += f"const float* {name}_paths[] = {{\n"
+    for i in range(num_segments):
+        path_pointers += f"    {name}_path_{i+1},\n"
+    path_pointers += "};\n\n"
+    
+    # Create a path lengths array
+    path_lengths = f"// Array of point counts for each path segment\n"
+    path_lengths += f"const uint16_t {name}_path_lengths[] = {{\n"
+    for i in range(num_segments):
+        path_lengths += f"    {name.upper()}_PATH_{i+1}_POINT_COUNT,\n"
+    path_lengths += "};\n"
     
     # Combine everything
     header = f"""#ifndef {header_guard}
@@ -293,42 +300,19 @@ def generate_header(segments, name="svg", scale=255.0):
 #include <stdbool.h>
 #include <stdint.h>
 
-// Points extracted from SVG file
-// Format: x1, y1, x2, y2, ... (normalized to 0-1 range)
-{point_array}
-
-// Indices where each path starts
-{path_starts_array}
-
-// Number of points and paths
-{point_count}
-{path_count}
-
-// Scale factor
+// Scale factor for all paths
 {scale_factor}
 
-// Helper macro to get point coordinates
-#define {name.upper()}_GET_X(i) ({name}_points[(i)*2] * {name.upper()}_SCALE)
-#define {name.upper()}_GET_Y(i) ({name}_points[(i)*2+1] * {name.upper()}_SCALE)
+// Total number of paths and points
+{path_count}
+{total_point_count}
 
-// Helper function to check if a point is the start of a new path
-static inline bool {name}_is_path_start(uint16_t index) {{
-    for (int i = 0; i < {name.upper()}_PATH_COUNT; i++) {{
-        if ({name}_path_starts[i] == index) return true;
-    }}
-    return false;
-}}
+// Individual path data - separate array for each path
+{all_path_arrays}
 
-// Helper function to get the number of points in a path
-static inline uint16_t {name}_get_path_point_count(uint16_t path_index) {{
-    if (path_index >= {name.upper()}_PATH_COUNT) return 0;
-    
-    if (path_index == {name.upper()}_PATH_COUNT - 1) {{
-        return {name.upper()}_POINT_COUNT - {name}_path_starts[path_index];
-    }} else {{
-        return {name}_path_starts[path_index + 1] - {name}_path_starts[path_index];
-    }}
-}}
+{path_pointers}
+
+{path_lengths}
 
 #endif // {header_guard}
 """
