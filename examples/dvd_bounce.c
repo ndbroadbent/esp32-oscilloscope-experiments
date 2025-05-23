@@ -30,11 +30,12 @@
 
 // Animation settings
 #define ANIMATION_SPEED 8  // Pixels per frame (much faster movement)
-#define PARTICLE_COUNT 35     // Number of particles for corner hit effects (increased)
-#define PARTICLE_LIFETIME 200 // How long particles live (in frames) - doubled for more visibility
+#define PARTICLE_COUNT 32     // Number of particles for corner hit effects (increased)
+#define PARTICLE_LIFETIME 300 // How long particles live (in frames) - increased for better visibility
 #define CORNER_THRESHOLD 15   // Distance from corner to trigger effect (pixels)
-#define PARTICLE_REDRAW_COUNT 1 // Number of times to redraw particles per frame
+#define PARTICLE_REDRAW_COUNT 0 // Number of times to redraw particles per frame for better visibility
 #define DEBUG_PARTICLE_EFFECT 0 // Set to 1 to show particle effects on all bounces
+#define DEBUG_FIRST_CORNER 1    // Set to 1 to aim logo at top-left corner for first hit, 0 for random edge hit
 #define DEBUG_LOGS 0 // Set to 1 to enable diagnostic logs
 
 // Task handle
@@ -160,13 +161,12 @@ void update_and_draw_particles(dac_oneshot_handle_t dac_x, dac_oneshot_handle_t 
             // Decay lifetime
             particles[i].lifetime--;
             
-            // Only deactivate particles when they fall below the screen
-            // This lets them gradually fall off rather than suddenly disappearing
-            if (particles[i].y > 300 || particles[i].lifetime <= 0) {
+            // Deactivate particles when their lifetime expires or they fall too far below the screen
+            if (particles[i].lifetime <= 0 || particles[i].y > 300) {
                 particles[i].active = false;
             }
             
-            // Bounce off side edges, but allow falling off bottom
+            // Bounce off side edges
             // Also reposition particles to prevent them from wrapping around
             if (particles[i].x <= 0) {
                 particles[i].x = 0.1f; // Move slightly inside the boundary
@@ -176,10 +176,30 @@ void update_and_draw_particles(dac_oneshot_handle_t dac_x, dac_oneshot_handle_t 
                 particles[i].vx = -fabs(particles[i].vx) * 0.8f; // Force negative x velocity
             }
             
-            // Only bounce off top, let them fall through bottom
+            // Bounce off top only
             if (particles[i].y <= 0) {
                 particles[i].y = 0.1f; // Move slightly inside the boundary
                 particles[i].vy = fabs(particles[i].vy) * 0.6f; // Force positive y velocity (downward)
+            } 
+            // For bottom edge, make sure particles never rest on it
+            else if (particles[i].y >= 255) {
+                // Create a bouncier first bounce
+                if (particles[i].vy > 1.5f) {  // Coming down with good speed
+                    particles[i].y = 254.9f;   // Move inside boundary
+                    particles[i].vy = -particles[i].vy * 0.4f;  // Bouncier first bounce (40%)
+                    particles[i].vx *= 0.8f;   // Add some friction
+                } 
+                else if (particles[i].vy > 0.5f) {  // Coming down with less speed (likely 2nd bounce)
+                    particles[i].y = 254.9f;
+                    particles[i].vy = -particles[i].vy * 0.2f;  // Less bounce for 2nd+ bounce (20%)
+                    particles[i].vx *= 0.7f;   // More friction
+                }
+                else {
+                    // No more bounces - ensure it falls off screen
+                    particles[i].y = 300.0f;   // Push it far below the edge
+                    particles[i].vy = 5.0f;    // Force fast downward velocity
+                    particles[i].lifetime = 0; // Mark for immediate removal
+                }
             }
             
             // Gradually slow down horizontal movement for more natural effect
@@ -497,23 +517,39 @@ void bouncing_dvd_task(void *pvParameters) {
     // Initialize particles
     init_particles();
     
-    // Initialize logo state in the center with trajectory to hit top-left corner
+    // Initialize logo position and velocity
+    float vx, vy, x_pos, y_pos;
     
-    // Calculate initial position for top-left corner trajectory
-    
-    // The problem is that the logo is a rectangle, not a square
-    // To hit the corner exactly, we need to adjust the direction based on the 
-    // different speeds at which it reaches the left and top edges
-    
-    // Start with a velocity in the general direction of the top-left corner
-    float vx = -1.0f; // Moving left
-    float vy = -1.0f; // Moving up
-    
-    // Position more to the right than to the bottom, to compensate for the rectangle shape
-    // This creates an asymmetrical starting position that will lead to a corner hit
-    float offset_factor = (float)LOGO_WIDTH / (float)LOGO_HEIGHT;
-    float x_pos = SCREEN_WIDTH / 2 + (offset_factor - 1.0f) * 30;  // Shift right based on aspect ratio
-    float y_pos = SCREEN_HEIGHT / 2;
+    if (DEBUG_FIRST_CORNER) {
+        // Initialize logo to hit top-left corner on first bounce
+        
+        // The problem is that the logo is a rectangle, not a square
+        // To hit the corner exactly, we need to adjust the direction based on the 
+        // different speeds at which it reaches the left and top edges
+        
+        // Start with a velocity in the general direction of the top-left corner
+        vx = -1.0f; // Moving left
+        vy = -1.0f; // Moving up
+        
+        // Position more to the right than to the bottom, to compensate for the rectangle shape
+        // This creates an asymmetrical starting position that will lead to a corner hit
+        float offset_factor = (float)LOGO_WIDTH / (float)LOGO_HEIGHT;
+        x_pos = SCREEN_WIDTH / 2 + (offset_factor - 1.0f) * 30;  // Shift right based on aspect ratio
+        y_pos = SCREEN_HEIGHT / 2;
+        
+        printf("DEBUG_FIRST_CORNER: Aiming for top-left corner hit\n");
+    } else {
+        // Initialize logo in center with random direction
+        x_pos = SCREEN_WIDTH / 2;
+        y_pos = SCREEN_HEIGHT / 2;
+        
+        // Random angle between 0 and 2π
+        float angle = ((float)rand() / RAND_MAX) * 2 * PI;
+        vx = cosf(angle);
+        vy = sinf(angle);
+        
+        printf("Starting with random direction: vx=%.2f, vy=%.2f\n", vx, vy);
+    }
     
     // Position with the calculated offset to ensure corner hit
     LogoState logo = {
