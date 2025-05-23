@@ -33,11 +33,21 @@
 #define PARTICLE_COUNT 40     // Number of particles for corner hit effects (increased)
 #define PARTICLE_LIFETIME 200 // How long particles live (in frames) - doubled for more visibility
 #define CORNER_THRESHOLD 15   // Distance from corner to trigger effect (pixels)
-#define CORNER_PAUSE_TIME 5000 // Time to pause in corner when particles are firing (ms)
-#define DEBUG_PARTICLE_EFFECT 1 // Set to 0 for normal mode, 1 to show particle effects on all bounces
+#define PARTICLE_REDRAW_COUNT 10 // Number of times to redraw particles per frame
+#define DEBUG_PARTICLE_EFFECT 0 // Set to 1 to show particle effects on all bounces
+#define DEBUG_LOGS 0 // Set to 1 to enable diagnostic logs
 
 // Task handle
 TaskHandle_t bounce_task_handle = NULL;
+
+// Corner position enum
+typedef enum {
+    CORNER_NONE = 0,
+    CORNER_TOP_LEFT,
+    CORNER_TOP_RIGHT,
+    CORNER_BOTTOM_LEFT,
+    CORNER_BOTTOM_RIGHT
+} CornerPosition;
 
 // Define a particle struct for corner hit effects
 typedef struct {
@@ -62,6 +72,10 @@ typedef struct {
     uint8_t color;
 } LogoState;
 
+// Function declarations
+void create_corner_effect(dac_oneshot_handle_t dac_x, dac_oneshot_handle_t dac_y, float x, float y, CornerPosition corner);
+CornerPosition is_near_corner(float x, float y, LogoState *logo);
+
 // Fast DAC update - attempts to make X and Y updates as close to atomic as possible
 static inline void fast_dac_update(dac_oneshot_handle_t dac_x, dac_oneshot_handle_t dac_y, uint8_t x_val, uint8_t y_val) {
     // Update both DACs as quickly as possible to minimize time between updates
@@ -80,11 +94,44 @@ void init_particles() {
 }
 
 // Create particle explosion effect when hitting a corner
-void create_corner_effect(dac_oneshot_handle_t dac_x, dac_oneshot_handle_t dac_y, float x, float y) {
+void create_corner_effect(dac_oneshot_handle_t dac_x, dac_oneshot_handle_t dac_y, float x, float y, CornerPosition corner) {
+    if (DEBUG_LOGS) {
+        printf("CREATING EFFECT: pos=(%f,%f), corner=%d\n", x, y, corner);
+    }
+    
+    // Calculate the corner position coordinates
+    float corner_x = x;
+    float corner_y = y;
+    float half_width = (LOGO_WIDTH * LOGO_SCALE) / 2;
+    float half_height = (LOGO_HEIGHT * LOGO_SCALE) / 2;
+    
+    // Adjust coordinates based on which corner was hit
+    switch (corner) {
+        case CORNER_TOP_LEFT:
+            corner_x = x - half_width;
+            corner_y = y - half_height;
+            break;
+        case CORNER_TOP_RIGHT:
+            corner_x = x + half_width;
+            corner_y = y - half_height;
+            break;
+        case CORNER_BOTTOM_LEFT:
+            corner_x = x - half_width;
+            corner_y = y + half_height;
+            break;
+        case CORNER_BOTTOM_RIGHT:
+            corner_x = x + half_width;
+            corner_y = y + half_height;
+            break;
+        default:
+            // If no specific corner, use the center of the logo
+            break;
+    }
+    
     // Activate all particles
     for (int i = 0; i < PARTICLE_COUNT; i++) {
-        particles[i].x = x;
-        particles[i].y = y;
+        particles[i].x = corner_x;
+        particles[i].y = corner_y;
         
         // Random velocity in all directions
         float angle = ((float)rand() / RAND_MAX) * 2 * PI;
@@ -96,8 +143,6 @@ void create_corner_effect(dac_oneshot_handle_t dac_x, dac_oneshot_handle_t dac_y
         particles[i].lifetime = PARTICLE_LIFETIME;
         particles[i].active = true;
     }
-    
-    // No firework burst effect - removed
 }
 
 // Update and draw all active particles
@@ -195,28 +240,37 @@ void update_and_draw_particles(dac_oneshot_handle_t dac_x, dac_oneshot_handle_t 
     }
 }
 
-// Function to check if we're near a corner
-bool is_near_corner(float x, float y, LogoState *logo) {
+// Function to check if we're near a corner and return which corner
+CornerPosition is_near_corner(float x, float y, LogoState *logo) {
     float half_width = (LOGO_WIDTH * LOGO_SCALE) / 2;
     float half_height = (LOGO_HEIGHT * LOGO_SCALE) / 2;
     
+    // Calculate distances to each edge
+    float left_dist = x - half_width;
+    float right_dist = SCREEN_WIDTH - (x + half_width);
+    float top_dist = y - half_height;
+    float bottom_dist = SCREEN_HEIGHT - (y + half_height);
+    
+    // Use the defined corner threshold
+    float threshold = CORNER_THRESHOLD;
+    
     // Check top-left corner
-    if (x - half_width < CORNER_THRESHOLD && y - half_height < CORNER_THRESHOLD)
-        return true;
+    if (left_dist < threshold && top_dist < threshold)
+        return CORNER_TOP_LEFT;
     
     // Check top-right corner
-    if (SCREEN_WIDTH - (x + half_width) < CORNER_THRESHOLD && y - half_height < CORNER_THRESHOLD)
-        return true;
+    if (right_dist < threshold && top_dist < threshold)
+        return CORNER_TOP_RIGHT;
     
     // Check bottom-left corner
-    if (x - half_width < CORNER_THRESHOLD && SCREEN_HEIGHT - (y + half_height) < CORNER_THRESHOLD)
-        return true;
+    if (left_dist < threshold && bottom_dist < threshold)
+        return CORNER_BOTTOM_LEFT;
     
     // Check bottom-right corner
-    if (SCREEN_WIDTH - (x + half_width) < CORNER_THRESHOLD && SCREEN_HEIGHT - (y + half_height) < CORNER_THRESHOLD)
-        return true;
+    if (right_dist < threshold && bottom_dist < threshold)
+        return CORNER_BOTTOM_RIGHT;
     
-    return false;
+    return CORNER_NONE;
 }
 
 
@@ -330,6 +384,12 @@ bool update_logo_position(LogoState *logo) {
     bool hit_corner = false;
     bool bounced = false;
     
+    // Track old position and velocity for debugging
+    float old_x = logo->x;
+    float old_y = logo->y;
+    float old_vx = logo->vx;
+    float old_vy = logo->vy;
+    
     // Force a speed reset to ensure it's moving at the right speed
     // We use the sign of current velocity but force the magnitude
     float vx_sign = (logo->vx >= 0) ? 1.0f : -1.0f;
@@ -380,12 +440,14 @@ bool update_logo_position(LogoState *logo) {
         // Already checked for corner in the x collision check
     }
     
-    // If we hit a corner and it's been at least 30 seconds since the last hit
-    uint32_t current_time = xTaskGetTickCount() / portTICK_PERIOD_MS;
-    if (hit_corner && (current_time - logo->last_corner_hit > 30000)) {
-        logo->last_corner_hit = current_time;
-        logo->color = (logo->color + 1) % 7; // Change color (even though we're monochrome)
-        // Don't print anything
+    // If we hit a corner, record it but don't do anything special
+    // The main loop will handle particle effects
+    if (hit_corner && DEBUG_LOGS) {
+        printf("CORNER HIT in update_position: (%f,%f) vx=%f->%f, vy=%f->%f\n", 
+               logo->x, logo->y, old_vx, logo->vx, old_vy, logo->vy);
+    } else if (bounced && DEBUG_LOGS) {
+        printf("WALL HIT in update_position: (%f,%f) vx=%f->%f, vy=%f->%f\n", 
+               logo->x, logo->y, old_vx, logo->vx, old_vy, logo->vy);
     }
     
     return bounced;
@@ -429,12 +491,32 @@ void bouncing_dvd_task(void *pvParameters) {
     // Initialize particles
     init_particles();
     
-    // Initialize logo state with guaranteed fast speed
+    // Initialize logo state in the center with trajectory to hit top-left corner
+    
+    // Calculate half dimensions - these are needed for positioning
+    float half_width = (LOGO_WIDTH * LOGO_SCALE) / 2;
+    float half_height = (LOGO_HEIGHT * LOGO_SCALE) / 2;
+    
+    // The problem is that the logo is a rectangle, not a square
+    // To hit the corner exactly, we need to adjust the direction based on the 
+    // different speeds at which it reaches the left and top edges
+    
+    // Start with a velocity in the general direction of the top-left corner
+    float vx = -1.0f; // Moving left
+    float vy = -1.0f; // Moving up
+    
+    // Position more to the right than to the bottom, to compensate for the rectangle shape
+    // This creates an asymmetrical starting position that will lead to a corner hit
+    float offset_factor = (float)LOGO_WIDTH / (float)LOGO_HEIGHT;
+    float x_pos = SCREEN_WIDTH / 2 + (offset_factor - 1.0f) * 30;  // Shift right based on aspect ratio
+    float y_pos = SCREEN_HEIGHT / 2;
+    
+    // Position with the calculated offset to ensure corner hit
     LogoState logo = {
-        .x = SCREEN_WIDTH / 2,
-        .y = SCREEN_HEIGHT / 2,
-        .vx = 5.0f,             // Directly set to a reasonable value
-        .vy = 5.0f,             // Directly set to a reasonable value
+        .x = x_pos,
+        .y = y_pos,
+        .vx = vx,                // Moving left
+        .vy = vy,                // Moving up
         .last_corner_hit = 0,
         .color = 0
     };
@@ -444,75 +526,148 @@ void bouncing_dvd_task(void *pvParameters) {
     // Main animation loop
     while (1) {
         uint32_t current_time = xTaskGetTickCount() / portTICK_PERIOD_MS;
-        // bool corner_hit = false; // Removed unused variable
-        static uint32_t corner_hit_start_time = 0;
-        static bool in_corner_pause = false;
+        static bool particles_active = false;
         
-        // For debug mode - show particle effect on ANY bounce
-        if (DEBUG_PARTICLE_EFFECT) {
-            // Update logo position and check if it bounced
-            bool bounced = update_logo_position(&logo);
-            
-            // Create particle effect if the logo bounced or if enough time has passed
-            if (bounced || (current_time - logo.last_corner_hit > 1000)) {
-                // Create particles at the logo position - FORCE CREATION EVERY TIME
-                for (int i = 0; i < PARTICLE_COUNT; i++) {
-                    particles[i].x = logo.x;
-                    particles[i].y = logo.y;
-                    
-                    // Random velocity in all directions
-                    float angle = ((float)rand() / RAND_MAX) * 2 * PI;
-                    float speed = 2.0f + ((float)rand() / RAND_MAX) * 6.0f;
-                    
-                    particles[i].vx = cos(angle) * speed;
-                    particles[i].vy = sin(angle) * speed;
-                    particles[i].lifetime = PARTICLE_LIFETIME;
-                    particles[i].active = true;
+        // Update logo position and check if it bounced
+        bool bounced = update_logo_position(&logo);
+        
+        // Check if we're near a corner or just bounced off an edge
+        CornerPosition corner = is_near_corner(logo.x, logo.y, &logo);
+        
+        // Log bounce and corner status
+        if (DEBUG_LOGS && bounced) {
+            printf("BOUNCE: pos=(%f,%f), corner=%d\n", logo.x, logo.y, corner);
+        }
+        
+        // Determine if we should show particle effects - ONLY when velocity changes (bounce)
+        bool show_particles = false;
+        
+        if (bounced) {  // Only when we actually bounce
+            if (DEBUG_PARTICLE_EFFECT) {
+                // In debug mode, show particles on any bounce
+                show_particles = true;
+                if (DEBUG_LOGS) {
+                    printf("DEBUG MODE: Showing particles on bounce\n");
                 }
-                
-                logo.last_corner_hit = current_time;
+            } else {
+                // In normal mode, only show particles at corners
+                show_particles = (corner != CORNER_NONE);
+                if (DEBUG_LOGS && corner != CORNER_NONE) {
+                    printf("NORMAL MODE: Corner hit, showing particles\n");
+                }
             }
-        } 
-        // Normal mode
-        else {
-            // If we're not currently paused in a corner
-            if (!in_corner_pause) {
-                // Update logo position and handle bouncing (ignore return value in normal mode)
-                update_logo_position(&logo);
+        }
+        
+        // Check if particles are currently active
+        particles_active = false;
+        for (int i = 0; i < PARTICLE_COUNT; i++) {
+            if (particles[i].active) {
+                particles_active = true;
+                break;
+            }
+        }
+        
+        // Show particles ONLY on bounce - no time check
+        if (show_particles) {
+            if (DEBUG_LOGS) {
+                printf("CREATING PARTICLES: time=%lu, last_hit=%lu\n", 
+                       current_time, logo.last_corner_hit);
+            }
+            // If we need to determine which edge was hit (in debug mode)
+            if (DEBUG_PARTICLE_EFFECT && corner == CORNER_NONE) {
+                // Calculate which edge was hit
+                float half_width = (LOGO_WIDTH * LOGO_SCALE) / 2;
+                float half_height = (LOGO_HEIGHT * LOGO_SCALE) / 2;
                 
-                // Check if we're near a corner
-                if (is_near_corner(logo.x, logo.y, &logo)) {
-                    if (current_time - logo.last_corner_hit > 5000) { // Only trigger every 5 seconds
-                        // Start corner pause
-                        in_corner_pause = true;
-                        corner_hit_start_time = current_time;
-                        
-                        // Create particle effect
-                        create_corner_effect(dac_handle_x, dac_handle_y, logo.x, logo.y);
-                        logo.last_corner_hit = current_time;
-                    }
-                }
-            } 
-            // If we're currently paused in a corner
-            else {
-                // Check if pause time has elapsed
-                if (current_time - corner_hit_start_time > CORNER_PAUSE_TIME) {
-                    // Resume normal movement
-                    in_corner_pause = false;
+                // Determine which edge is closest
+                float left_dist = logo.x - half_width;
+                float right_dist = SCREEN_WIDTH - (logo.x + half_width);
+                float top_dist = logo.y - half_height;
+                float bottom_dist = SCREEN_HEIGHT - (logo.y + half_height);
+                
+                // Find the minimum distance to determine which edge/corner
+                if (left_dist <= right_dist && left_dist <= top_dist && left_dist <= bottom_dist) {
+                    // Left edge is closest
+                    corner = (top_dist <= bottom_dist) ? CORNER_TOP_LEFT : CORNER_BOTTOM_LEFT;
                 } 
-                // If still in pause, create new particles periodically
-                else if (current_time - logo.last_corner_hit > 500) {
-                    create_corner_effect(dac_handle_x, dac_handle_y, logo.x, logo.y);
-                    logo.last_corner_hit = current_time;
+                else if (right_dist <= left_dist && right_dist <= top_dist && right_dist <= bottom_dist) {
+                    // Right edge is closest
+                    corner = (top_dist <= bottom_dist) ? CORNER_TOP_RIGHT : CORNER_BOTTOM_RIGHT;
+                }
+                else if (top_dist <= left_dist && top_dist <= right_dist && top_dist <= bottom_dist) {
+                    // Top edge is closest
+                    corner = (left_dist <= right_dist) ? CORNER_TOP_LEFT : CORNER_TOP_RIGHT;
+                }
+                else {
+                    // Bottom edge is closest
+                    corner = (left_dist <= right_dist) ? CORNER_BOTTOM_LEFT : CORNER_BOTTOM_RIGHT;
                 }
             }
+            
+            // Create particle effect at the corner of the logo
+            create_corner_effect(dac_handle_x, dac_handle_y, logo.x, logo.y, corner);
+            logo.last_corner_hit = current_time;
         }
         
         // Draw the DVD logo
         draw_dvd_logo(dac_handle_x, dac_handle_y, &logo);
         
-        // Update and draw particles
-        update_and_draw_particles(dac_handle_x, dac_handle_y);
+        // Draw active particles multiple times per frame to make them more visible
+        if (particles_active) {
+            // First update them once (physics, lifetime, etc.)
+            update_and_draw_particles(dac_handle_x, dac_handle_y);
+            
+            // Then draw them repeatedly without updating, to increase brightness
+            for (int i = 0; i < PARTICLE_REDRAW_COUNT; i++) {
+                // Only draw, don't update
+                for (int j = 0; j < PARTICLE_COUNT; j++) {
+                    if (particles[j].active) {
+                        // Flip Y coordinate to fix orientation
+                        float display_y = 255 - particles[j].y;
+                        
+                        // Draw the particle
+                        uint8_t x_val = (uint8_t)fmin(fmax(particles[j].x, 0), 255);
+                        uint8_t y_val = (uint8_t)fmin(fmax(display_y, 0), 255);
+                        
+                        // Apply inversion if configured
+                        if (INVERT_X) {
+                            x_val = 255 - x_val;
+                        }
+                        if (INVERT_Y) {
+                            y_val = 255 - y_val;
+                        }
+                        
+                        // Calculate size based on remaining lifetime
+                        int size = 1;
+                        if (particles[j].lifetime > PARTICLE_LIFETIME * 0.7f) {
+                            size = 3;  // Full size at start
+                        } else if (particles[j].lifetime > PARTICLE_LIFETIME * 0.4f) {
+                            size = 2;  // Medium size in middle
+                        } else {
+                            size = 1;  // Smallest at end
+                        }
+                        
+                        // Always draw center point
+                        fast_dac_update(dac_x, dac_y, x_val, y_val);
+                        
+                        // Draw expanded pattern based on size
+                        if (size >= 2) {
+                            // Horizontal and vertical points
+                            fast_dac_update(dac_x, dac_y, x_val + 1, y_val);
+                            fast_dac_update(dac_x, dac_y, x_val - 1, y_val);
+                            fast_dac_update(dac_x, dac_y, x_val, y_val + 1);
+                            fast_dac_update(dac_x, dac_y, x_val, y_val - 1);
+                        }
+                        
+                        // Extra brightness for center point
+                        fast_dac_update(dac_x, dac_y, x_val, y_val);
+                    }
+                }
+            }
+        } else {
+            // No active particles, just draw once
+            update_and_draw_particles(dac_handle_x, dac_handle_y);
+        }
         
         // Remove the delay entirely to maximize frame rate
         // This allows the task to run as fast as possible
