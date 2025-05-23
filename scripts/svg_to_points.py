@@ -131,6 +131,88 @@ def path_to_discrete_points(path, points_per_segment=50):
     
     return path_segments
 
+def simplify_path_rdp(points, epsilon):
+    """
+    Simplify a path using the Ramer-Douglas-Peucker algorithm.
+    Reduces the number of points while preserving the shape.
+    
+    Args:
+        points: List of (x, y) coordinates
+        epsilon: Distance threshold for simplification
+        
+    Returns:
+        Simplified list of (x, y) coordinates
+    """
+    if len(points) <= 2:
+        return points
+    
+    # Find the point with the maximum distance from line between start and end
+    def max_distance(start, end, points):
+        if len(points) == 0:
+            return 0, 0
+        
+        # Check if start and end points are the same
+        if start[0] == end[0] and start[1] == end[1]:
+            # If they're the same, find the point furthest from this point
+            max_dist = 0
+            max_idx = 0
+            for i, point in enumerate(points):
+                dx = point[0] - start[0]
+                dy = point[1] - start[1]
+                dist = math.sqrt(dx*dx + dy*dy)
+                if dist > max_dist:
+                    max_dist = dist
+                    max_idx = i
+            return max_dist, max_idx
+            
+        # Line equation: ax + by + c = 0
+        a = end[1] - start[1]
+        b = start[0] - end[0]
+        c = end[0] * start[1] - start[0] * end[1]
+        
+        # Calculate denominator for distance formula
+        denominator = math.sqrt(a*a + b*b)
+        if denominator < 1e-10:  # Check for division by zero
+            # Points are very close, use distance to start point
+            max_dist = 0
+            max_idx = 0
+            for i, point in enumerate(points):
+                dx = point[0] - start[0]
+                dy = point[1] - start[1]
+                dist = math.sqrt(dx*dx + dy*dy)
+                if dist > max_dist:
+                    max_dist = dist
+                    max_idx = i
+            return max_dist, max_idx
+        
+        # Calculate distance from each point to the line
+        max_dist = 0
+        max_idx = 0
+        
+        for i, point in enumerate(points):
+            # Perpendicular distance from point to line
+            dist = abs(a * point[0] + b * point[1] + c) / denominator
+            
+            if dist > max_dist:
+                max_dist = dist
+                max_idx = i
+                
+        return max_dist, max_idx
+    
+    # Apply RDP algorithm recursively
+    dmax, index = max_distance(points[0], points[-1], points[1:-1])
+    
+    if dmax > epsilon:
+        # If max distance is greater than epsilon, recursively simplify both segments
+        first_segment = simplify_path_rdp(points[:index+2], epsilon)  # +2 because index is relative to points[1:-1]
+        second_segment = simplify_path_rdp(points[index+1:], epsilon)
+        
+        # Merge the two simplified segments
+        return first_segment[:-1] + second_segment
+    else:
+        # If max distance is less than epsilon, simplify to just endpoints
+        return [points[0], points[-1]]
+
 def normalize_points(points, global_bounds=None):
     """
     Normalize points to 0-1 range while preserving aspect ratio and relative positions.
@@ -327,7 +409,10 @@ def main():
     parser.add_argument('--scale', type=float, default=255.0, help='Scale factor (default: 255.0)')
     parser.add_argument('--points-per-segment', type=int, default=50, 
                         help='Number of points per path segment (default: 50)')
+    parser.add_argument('--simplify', type=float, default=0.0, 
+                        help='Simplification threshold (0.0 for no simplification, recommended 0.001-0.01)')
     parser.add_argument('--debug-svg', help='Output a debug SVG file showing the path segments')
+    parser.add_argument('--debug-simplified-svg', help='Output a debug SVG showing the simplified path segments')
     args = parser.parse_args()
     
     print(f"Processing SVG file: {args.input}")
@@ -350,7 +435,7 @@ def main():
         print("No valid path segments found")
         sys.exit(1)
     
-    # Calculate global bounds from all path segments
+    # Calculate global bounds from all path segments (before simplification)
     all_points = []
     for segment in path_segments:
         all_points.extend(segment)
@@ -361,24 +446,48 @@ def main():
     max_y = max(p[1] for p in all_points)
     global_bounds = (min_x, max_x, min_y, max_y)
     
-    # Normalize each segment using the same global bounds
-    normalized_segments = [normalize_points(segment, global_bounds) for segment in path_segments]
-    
-    # Generate debug SVG if requested
+    # Generate debug SVG with original points if requested
     if args.debug_svg:
-        generate_debug_svg(normalized_segments, args.debug_svg)
+        # Normalize for debug SVG
+        normalized_for_debug = [normalize_points(segment, global_bounds) for segment in path_segments]
+        generate_debug_svg(normalized_for_debug, args.debug_svg)
+    
+    # Apply path simplification if threshold is provided
+    original_point_count = sum(len(segment) for segment in path_segments)
+    if args.simplify > 0:
+        simplified_segments = []
+        for segment in path_segments:
+            # First normalize the segment for simplification
+            normalized = normalize_points(segment, global_bounds)
+            # Apply RDP algorithm with the specified threshold
+            simplified = simplify_path_rdp(normalized, args.simplify)
+            simplified_segments.append(simplified)
+        
+        simplified_point_count = sum(len(segment) for segment in simplified_segments)
+        reduction_percent = 100 * (original_point_count - simplified_point_count) / original_point_count
+        print(f"Simplified paths: {original_point_count} → {simplified_point_count} points ({reduction_percent:.2f}% reduction)")
+        
+        # Output debug SVG for simplified paths if requested
+        if args.debug_simplified_svg:
+            generate_debug_svg(simplified_segments, args.debug_simplified_svg)
+        
+        # Use the simplified segments
+        path_segments = simplified_segments
+    else:
+        # Just normalize without simplification
+        path_segments = [normalize_points(segment, global_bounds) for segment in path_segments]
     
     # Generate header file
-    header = generate_header(normalized_segments, args.name, args.scale)
+    header = generate_header(path_segments, args.name, args.scale)
     
     # Write header file
     with open(args.output, 'w') as f:
         f.write(header)
     
     # Calculate stats
-    total_points = sum(len(segment) for segment in normalized_segments)
+    total_points = sum(len(segment) for segment in path_segments)
     print(f"Successfully converted {args.input} to {args.output}")
-    print(f"Generated {total_points} points across {len(normalized_segments)} path segments")
+    print(f"Generated {total_points} points across {len(path_segments)} path segments")
     print(f"Scale factor: {args.scale}")
 
 if __name__ == '__main__':

@@ -62,103 +62,6 @@ typedef struct {
     uint8_t color;
 } LogoState;
 
-// Manually defined DVD logo paths with clean breaks between segments
-// Each path segment is a separate array of x,y coordinates scaled 0-1
-
-// First D - outer path
-const float dvd_first_d_outer[] = {
-    0.10, 0.20,  // Top left
-    0.25, 0.20,  // Top right
-    0.30, 0.25,  // Top curve
-    0.32, 0.35,  // Right side
-    0.30, 0.45,  // Bottom curve
-    0.25, 0.50,  // Bottom right
-    0.10, 0.50,  // Bottom left
-    0.10, 0.20   // Back to start
-};
-#define FIRST_D_OUTER_POINTS (sizeof(dvd_first_d_outer) / (2 * sizeof(float)))
-
-// First D - inner cutout
-const float dvd_first_d_inner[] = {
-    0.15, 0.25,  // Inner top left
-    0.22, 0.25,  // Inner top right
-    0.25, 0.30,  // Inner top curve
-    0.25, 0.40,  // Inner right side
-    0.22, 0.45,  // Inner bottom curve
-    0.15, 0.45,  // Inner bottom left
-    0.15, 0.25   // Back to inner start
-};
-#define FIRST_D_INNER_POINTS (sizeof(dvd_first_d_inner) / (2 * sizeof(float)))
-
-// V shape
-const float dvd_v_shape[] = {
-    0.35, 0.20,  // Left top
-    0.45, 0.50,  // Bottom middle
-    0.55, 0.20   // Right top
-};
-#define V_SHAPE_POINTS (sizeof(dvd_v_shape) / (2 * sizeof(float)))
-
-// Second D - outer path
-const float dvd_second_d_outer[] = {
-    0.60, 0.20,  // Top left
-    0.75, 0.20,  // Top right
-    0.80, 0.25,  // Top curve
-    0.82, 0.35,  // Right side
-    0.80, 0.45,  // Bottom curve
-    0.75, 0.50,  // Bottom right
-    0.60, 0.50,  // Bottom left
-    0.60, 0.20   // Back to start
-};
-#define SECOND_D_OUTER_POINTS (sizeof(dvd_second_d_outer) / (2 * sizeof(float)))
-
-// Second D - inner cutout
-const float dvd_second_d_inner[] = {
-    0.65, 0.25,  // Inner top left
-    0.72, 0.25,  // Inner top right
-    0.75, 0.30,  // Inner top curve
-    0.75, 0.40,  // Inner right side
-    0.72, 0.45,  // Inner bottom curve
-    0.65, 0.45,  // Inner bottom left
-    0.65, 0.25   // Back to inner start
-};
-#define SECOND_D_INNER_POINTS (sizeof(dvd_second_d_inner) / (2 * sizeof(float)))
-
-// Outer oval
-const float dvd_outer_oval[] = {
-    0.45, 0.70,  // Center top
-    0.55, 0.70,  // Right top
-    0.65, 0.72,  // Right upper
-    0.75, 0.75,  // Right
-    0.80, 0.80,  // Right lower
-    0.75, 0.85,  // Bottom right
-    0.65, 0.88,  // Bottom
-    0.55, 0.90,  // Bottom left
-    0.45, 0.90,  // Left bottom
-    0.35, 0.88,  // Left
-    0.25, 0.85,  // Left upper
-    0.20, 0.80,  // Top left
-    0.25, 0.75,  // Top
-    0.35, 0.72,  // Top right
-    0.45, 0.70   // Back to start
-};
-#define OUTER_OVAL_POINTS (sizeof(dvd_outer_oval) / (2 * sizeof(float)))
-
-// Inner oval
-const float dvd_inner_oval[] = {
-    0.45, 0.75,  // Center top
-    0.55, 0.75,  // Right top
-    0.62, 0.77,  // Right upper
-    0.67, 0.80,  // Right
-    0.62, 0.83,  // Right lower
-    0.55, 0.85,  // Bottom right
-    0.45, 0.85,  // Bottom left
-    0.35, 0.83,  // Left bottom
-    0.30, 0.80,  // Left
-    0.35, 0.77,  // Left upper
-    0.45, 0.75   // Back to start
-};
-#define INNER_OVAL_POINTS (sizeof(dvd_inner_oval) / (2 * sizeof(float)))
-
 // Fast DAC update - attempts to make X and Y updates as close to atomic as possible
 static inline void fast_dac_update(dac_oneshot_handle_t dac_x, dac_oneshot_handle_t dac_y, uint8_t x_val, uint8_t y_val) {
     // Update both DACs as quickly as possible to minimize time between updates
@@ -316,104 +219,107 @@ bool is_near_corner(float x, float y, LogoState *logo) {
     return false;
 }
 
-// Helper function to draw a segment of the DVD logo
-void draw_logo_segment(dac_oneshot_handle_t dac_x, dac_oneshot_handle_t dac_y, 
-                      const float *points, int num_points, float cx, float cy) {
-    // Draw the segment with proper loops to close the path
-    for (int i = 0; i < num_points - 1; i++) {
-        // Get current and next point
-        float x1 = points[i*2] * LOGO_WIDTH * LOGO_SCALE + cx - (LOGO_WIDTH * LOGO_SCALE / 2);
-        float y1 = points[i*2+1] * LOGO_HEIGHT * LOGO_SCALE + cy - (LOGO_HEIGHT * LOGO_SCALE / 2);
-        float x2 = points[(i+1)*2] * LOGO_WIDTH * LOGO_SCALE + cx - (LOGO_WIDTH * LOGO_SCALE / 2);
-        float y2 = points[(i+1)*2+1] * LOGO_HEIGHT * LOGO_SCALE + cy - (LOGO_HEIGHT * LOGO_SCALE / 2);
-        
-        // Flip Y coordinates for correct orientation
-        y1 = 255 - y1;
-        y2 = 255 - y2;
-        
-        // Calculate distance for proper interpolation
-        float dx = x2 - x1;
-        float dy = y2 - y1;
-        float distance = sqrtf(dx*dx + dy*dy);
-        
-        // Calculate number of steps based on distance (more steps for longer lines)
-        int steps = (int)(distance * 2.5f); // 2.5 points per pixel
-        if (steps < 1) steps = 1;
-        
-        // Interpolate points along the line
-        for (int j = 0; j <= steps; j++) {
-            float t = (float)j / steps;
-            float x = x1 + t * dx;
-            float y = y1 + t * dy;
-            
-            // Ensure coordinates are within DAC range
-            uint8_t x_val = (uint8_t)fmin(fmax(x, 0), 255);
-            uint8_t y_val = (uint8_t)fmin(fmax(y, 0), 255);
-            
-            // Apply inversion if configured
-            if (INVERT_X) {
-                x_val = 255 - x_val;
-            }
-            if (INVERT_Y) {
-                y_val = 255 - y_val;
-            }
-            
-            // Draw point
-            fast_dac_update(dac_x, dac_y, x_val, y_val);
-        }
-    }
-    
-    // Connect last point to first point if needed (for closed shapes)
-    if (num_points > 2) {
-        float x1 = points[(num_points-1)*2] * LOGO_WIDTH * LOGO_SCALE + cx - (LOGO_WIDTH * LOGO_SCALE / 2);
-        float y1 = points[(num_points-1)*2+1] * LOGO_HEIGHT * LOGO_SCALE + cy - (LOGO_HEIGHT * LOGO_SCALE / 2);
-        float x2 = points[0] * LOGO_WIDTH * LOGO_SCALE + cx - (LOGO_WIDTH * LOGO_SCALE / 2);
-        float y2 = points[1] * LOGO_HEIGHT * LOGO_SCALE + cy - (LOGO_HEIGHT * LOGO_SCALE / 2);
-        
-        // Flip Y coordinates
-        y1 = 255 - y1;
-        y2 = 255 - y2;
-        
-        float dx = x2 - x1;
-        float dy = y2 - y1;
-        float distance = sqrtf(dx*dx + dy*dy);
-        
-        int steps = (int)(distance * 2.5f);
-        if (steps < 1) steps = 1;
-        
-        for (int j = 0; j <= steps; j++) {
-            float t = (float)j / steps;
-            float x = x1 + t * dx;
-            float y = y1 + t * dy;
-            
-            uint8_t x_val = (uint8_t)fmin(fmax(x, 0), 255);
-            uint8_t y_val = (uint8_t)fmin(fmax(y, 0), 255);
-            
-            if (INVERT_X) {
-                x_val = 255 - x_val;
-            }
-            if (INVERT_Y) {
-                y_val = 255 - y_val;
-            }
-            
-            fast_dac_update(dac_x, dac_y, x_val, y_val);
-        }
-    }
-}
 
-// Draw the DVD logo at the current position - using manually defined segments
+// Draw the DVD logo at the current position - using generated path segments
 void draw_dvd_logo(dac_oneshot_handle_t dac_x, dac_oneshot_handle_t dac_y, LogoState *logo) {
     float cx = logo->x;
     float cy = logo->y;
     
-    // Draw each segment of the logo separately
-    draw_logo_segment(dac_x, dac_y, dvd_first_d_outer, FIRST_D_OUTER_POINTS, cx, cy);
-    draw_logo_segment(dac_x, dac_y, dvd_first_d_inner, FIRST_D_INNER_POINTS, cx, cy);
-    draw_logo_segment(dac_x, dac_y, dvd_v_shape, V_SHAPE_POINTS, cx, cy);
-    draw_logo_segment(dac_x, dac_y, dvd_second_d_outer, SECOND_D_OUTER_POINTS, cx, cy);
-    draw_logo_segment(dac_x, dac_y, dvd_second_d_inner, SECOND_D_INNER_POINTS, cx, cy);
-    draw_logo_segment(dac_x, dac_y, dvd_outer_oval, OUTER_OVAL_POINTS, cx, cy);
-    draw_logo_segment(dac_x, dac_y, dvd_inner_oval, INNER_OVAL_POINTS, cx, cy);
+    // Draw each path segment from the generated header file
+    for (int path_idx = 0; path_idx < DVD_LOGO_PATH_COUNT; path_idx++) {
+        const float* path_points = dvd_logo_paths[path_idx];
+        int point_count = dvd_logo_path_lengths[path_idx];
+        
+        if (point_count < 2) continue; // Skip empty segments
+        
+        // Calculate points for this segment
+        for (int i = 0; i < point_count - 1; i++) {
+            // Get current and next points
+            float x1 = path_points[i*2] * LOGO_WIDTH * LOGO_SCALE + cx - (LOGO_WIDTH * LOGO_SCALE / 2);
+            float y1 = path_points[i*2+1] * LOGO_HEIGHT * LOGO_SCALE + cy - (LOGO_HEIGHT * LOGO_SCALE / 2);
+            float x2 = path_points[(i+1)*2] * LOGO_WIDTH * LOGO_SCALE + cx - (LOGO_WIDTH * LOGO_SCALE / 2);
+            float y2 = path_points[(i+1)*2+1] * LOGO_HEIGHT * LOGO_SCALE + cy - (LOGO_HEIGHT * LOGO_SCALE / 2);
+            
+            // Flip Y coordinates for correct orientation
+            y1 = 255 - y1;
+            y2 = 255 - y2;
+            
+            // Calculate distance for proper interpolation
+            float dx = x2 - x1;
+            float dy = y2 - y1;
+            float distance = sqrtf(dx*dx + dy*dy);
+            
+            // Calculate number of steps based on distance (more steps for longer lines)
+            int steps = (int)(distance * 2.5f); // 2.5 points per pixel
+            if (steps < 1) steps = 1;
+            
+            // Interpolate points along the line
+            for (int j = 0; j <= steps; j++) {
+                float t = (float)j / steps;
+                float x = x1 + t * dx;
+                float y = y1 + t * dy;
+                
+                // Ensure coordinates are within DAC range
+                uint8_t x_val = (uint8_t)fmin(fmax(x, 0), 255);
+                uint8_t y_val = (uint8_t)fmin(fmax(y, 0), 255);
+                
+                // Apply inversion if configured
+                if (INVERT_X) {
+                    x_val = 255 - x_val;
+                }
+                if (INVERT_Y) {
+                    y_val = 255 - y_val;
+                }
+                
+                // Draw point
+                fast_dac_update(dac_x, dac_y, x_val, y_val);
+            }
+        }
+        
+        // Close the path by connecting last point to first point
+        if (point_count >= 3) {
+            // Get last and first points
+            float x1 = path_points[(point_count-1)*2] * LOGO_WIDTH * LOGO_SCALE + cx - (LOGO_WIDTH * LOGO_SCALE / 2);
+            float y1 = path_points[(point_count-1)*2+1] * LOGO_HEIGHT * LOGO_SCALE + cy - (LOGO_HEIGHT * LOGO_SCALE / 2);
+            float x2 = path_points[0] * LOGO_WIDTH * LOGO_SCALE + cx - (LOGO_WIDTH * LOGO_SCALE / 2);
+            float y2 = path_points[1] * LOGO_HEIGHT * LOGO_SCALE + cy - (LOGO_HEIGHT * LOGO_SCALE / 2);
+            
+            // Flip Y coordinates for correct orientation
+            y1 = 255 - y1;
+            y2 = 255 - y2;
+            
+            // Calculate distance for proper interpolation
+            float dx = x2 - x1;
+            float dy = y2 - y1;
+            float distance = sqrtf(dx*dx + dy*dy);
+            
+            // Calculate number of steps based on distance
+            int steps = (int)(distance * 2.5f);
+            if (steps < 1) steps = 1;
+            
+            // Interpolate points along the line
+            for (int j = 0; j <= steps; j++) {
+                float t = (float)j / steps;
+                float x = x1 + t * dx;
+                float y = y1 + t * dy;
+                
+                // Ensure coordinates are within DAC range
+                uint8_t x_val = (uint8_t)fmin(fmax(x, 0), 255);
+                uint8_t y_val = (uint8_t)fmin(fmax(y, 0), 255);
+                
+                // Apply inversion if configured
+                if (INVERT_X) {
+                    x_val = 255 - x_val;
+                }
+                if (INVERT_Y) {
+                    y_val = 255 - y_val;
+                }
+                
+                // Draw point
+                fast_dac_update(dac_x, dac_y, x_val, y_val);
+            }
+        }
+    }
 }
 
 // Update logo position and handle bouncing
