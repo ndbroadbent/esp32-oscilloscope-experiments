@@ -45,7 +45,13 @@ menu "ESP32 Oscilloscope Demo Configuration"
             bool "Animation Demo"
             help
                 Run the animation demo (10 FPS, configurable in animation.h).
+                
+        config DEMO_FRACTAL_MAZE
+            bool "Fractal Maze Demo"
+            help
+                Run the fractal maze demo creating intricate patterns with recursively generated mazes.
     endchoice
+    
     
     config WIFI_SSID
         depends on DEMO_CLOCK

@@ -8,6 +8,7 @@ extern void app_main_grayscale(void);
 extern void app_main_timebase(void);
 extern void app_main_animation(void);
 extern void app_main_clock(void);
+extern void app_main_fractal_maze(void);
 
 void app_main(void)
 {
@@ -28,6 +29,9 @@ void app_main(void)
 #elif defined(CONFIG_DEMO_CLOCK)
     printf("Running Clock demo\n");
     app_main_clock();
+#elif defined(CONFIG_DEMO_FRACTAL_MAZE)
+    printf("Running Fractal Maze demo\n");
+    app_main_fractal_maze();
 #else
     // Default to timebase demo
     printf("No demo selected. Running Timebase Image demo by default\n");

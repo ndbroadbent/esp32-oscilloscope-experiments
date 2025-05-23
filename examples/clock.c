@@ -23,8 +23,17 @@
 #define PI 3.14159265358979323846
 
 // WiFi connection settings from menuconfig
+#ifdef CONFIG_WIFI_SSID
 #define WIFI_SSID      CONFIG_WIFI_SSID
+#else
+#define WIFI_SSID      "default_ssid"
+#endif
+
+#ifdef CONFIG_WIFI_PASSWORD
 #define WIFI_PASSWORD  CONFIG_WIFI_PASSWORD
+#else
+#define WIFI_PASSWORD  "default_password"
+#endif
 #define MAXIMUM_RETRY  5
 
 // Orientation control - set these to 1 to invert axes if needed for your specific oscilloscope
@@ -749,8 +758,13 @@ void app_main_clock(void)
     ESP_LOGI(TAG, "Starting WiFi in STA mode");
     
     // Set timezone before anything else
+#ifdef CONFIG_NTP_TIMEZONE
     printf("Setting timezone to: %s\n", CONFIG_NTP_TIMEZONE);
     setenv("TZ", CONFIG_NTP_TIMEZONE, 1);
+#else
+    printf("Setting timezone to default\n");
+    setenv("TZ", "UTC0", 1);
+#endif
     tzset();
     
     // Initialize WiFi after spinner is running
